@@ -61,7 +61,7 @@ x-airflow-common:
     AIRFLOW__CORE__ENABLE_XCOM_PICKLING: 'true'
     AIRFLOW__API__AUTH_BACKEND: 'airflow.api.auth.backend.basic_auth'
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
-#    _PIP_ADDITIONAL_REQUIREMENTS:
+
     AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
   volumes:
     - ./dags:/opt/airflow/dags
