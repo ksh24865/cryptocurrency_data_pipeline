@@ -18,6 +18,10 @@ def get_date_months_before(current_date: date, months: int) -> date:
     return reduce(lambda acc, _: a_month_before(acc), range(months), current_date)
 
 
+def get_datetime_hours_before(current_date: date, hours: int) -> datetime:
+    return date_to_datetime(current_date) - timedelta(hours=hours)
+
+
 def a_month_before(current_date: date) -> date:
     if current_date.month == 1:
         return date(year=current_date.year - 1, month=12, day=current_date.day)
@@ -61,6 +65,14 @@ def str_to_datetime(date_str: str) -> datetime:
 
 def str_to_date(date_str: str) -> date:
     return str_to_datetime(date_str).date()
+
+
+def date_to_datetime(d: date) -> datetime:
+    return datetime(
+        year=d.year,
+        month=d.month,
+        day=d.day,
+    )
 
 
 def utc_to_kst(
