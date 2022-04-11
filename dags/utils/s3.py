@@ -8,9 +8,11 @@ def upload_file_s3(
     bucket_name: str,
     key: str,
     file_obj: BytesIO,
+    replace: bool = True,
 ) -> None:
     s3_hook.load_file_obj(
         file_obj=file_obj,
         key=key,
         bucket_name=bucket_name,
+        replace=replace,
     )

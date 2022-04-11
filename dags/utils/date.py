@@ -8,6 +8,7 @@ from dateutil.parser import parse
 from pytz import timezone
 
 KST: Final[tz] = timezone("Asia/Seoul")
+DAY: Final[timedelta] = timedelta(days=1)
 
 
 def get_date_for_today() -> date:
@@ -16,6 +17,10 @@ def get_date_for_today() -> date:
 
 def get_date_months_before(current_date: date, months: int) -> date:
     return reduce(lambda acc, _: a_month_before(acc), range(months), current_date)
+
+
+def get_datetime_days_before(current_date: date, days: int) -> date:
+    return current_date - timedelta(days=days)
 
 
 def get_datetime_hours_before(current_date: date, hours: int) -> datetime:
@@ -46,16 +51,12 @@ def date_range(
     time_interval: int = 1,
 ) -> Iterable[Tuple[date, date]]:
     print(f"start_date:{start_date}, end_date:{end_date}")
-    origin_start_date = start_date
     time_interval = timedelta(days=time_interval)
-    day = timedelta(days=1)
-    tmp_date = start_date + time_interval - day
+    tmp_date = start_date + time_interval - DAY
     while tmp_date < end_date:
         yield start_date, tmp_date
         start_date += time_interval
         tmp_date += time_interval
-    if origin_start_date != start_date:
-        start_date -= time_interval
     yield start_date, end_date
 
 
