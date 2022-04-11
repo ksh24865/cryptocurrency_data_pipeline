@@ -1,23 +1,33 @@
-from typing import Optional, TypedDict
+from typing import Final, Optional, TypedDict
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+
+# from airflow.operators.python import PythonOperator
 from constants import CRYPTOCURRENCY_BUCKET_NAME
 from operators.cryptocurrency.price.sourcing_batch_daily import (
     CryptocurrencyPriceSourcingBatchDailyOperator,
 )
-from utils.cryptocurrency.top_list import (
+from operators.cryptocurrency.price.sourcing_batch_hourly import (
+    CryptocurrencyPriceSourcingBatchHourlyOperator,
+)
+from operators.cryptocurrency.price.sourcing_batch_minutely import (
+    CryptocurrencyPriceSourcingBatchMinutelyOperator,
+)
+from utils.cryptocurrency.top_list import (  # top_symbol_list_by_market_cap_generator,
     TOP_SYMBOL_LIST_BY_MARKET_CAP,
-    top_symbol_list_by_market_cap_generator,
 )
 from utils.date import utc_to_kst
 
-DAG_ID = "cryptocurrency_batch"
+DAG_ID: Final[str] = "cryptocurrency_batch"
 
 default_args = {
     "owner": "sam",
     "start_date": "2022-03-20T00:00:00Z",
 }
+
+SOURCING_DAILY_TASK_ID: Final[str] = "sourcing_daily"
+SOURCING_HOURLY_TASK_ID: Final[str] = "sourcing_hourly"
+SOURCING_MINUTELY_TASK_ID: Final[str] = "sourcing_minutely"
 
 
 class BatchInfo(TypedDict):
@@ -55,21 +65,36 @@ with DAG(
     },
     render_template_as_native_obj=True,
 ) as dag:
-    data_refresh_tasks = [
-        PythonOperator(
-            task_id=f"{CRYPTOCURRENCY_PRICE_SOURCING_BATCH_TASK_ID_PREFIX}_{idx}",
-            python_callable=data_refresh,
-            op_kwargs={"t": top_symbol_list_by_market_cap},
-        )
-        for idx, top_symbol_list_by_market_cap in enumerate(
-            top_symbol_list_by_market_cap_generator()
-        )
-    ]
-    cryp = CryptocurrencyPriceSourcingBatchDailyOperator(
-        task_id="CryptocurrencyPriceBatchOperator",
+    # data_refresh_tasks = [
+    #     PythonOperator(
+    #         task_id=f"{CRYPTOCURRENCY_PRICE_SOURCING_BATCH_TASK_ID_PREFIX}_{idx}",
+    #         python_callable=data_refresh,
+    #         op_kwargs={"t": top_symbol_list_by_market_cap},
+    #     )
+    #     for idx, top_symbol_list_by_market_cap in enumerate(
+    #         top_symbol_list_by_market_cap_generator()
+    #     )
+    # ]
+
+    sourcing_daily = CryptocurrencyPriceSourcingBatchDailyOperator(
+        task_id=SOURCING_DAILY_TASK_ID,
         bucket_name=CRYPTOCURRENCY_BUCKET_NAME,
         symbol_list=TOP_SYMBOL_LIST_BY_MARKET_CAP,
         execution_date="{{ utc_to_kst(ts) }}",
     )
 
-    data_refresh_tasks >> cryp
+    sourcing_hourly = CryptocurrencyPriceSourcingBatchHourlyOperator(
+        task_id=SOURCING_HOURLY_TASK_ID,
+        bucket_name=CRYPTOCURRENCY_BUCKET_NAME,
+        symbol_list=TOP_SYMBOL_LIST_BY_MARKET_CAP,
+        execution_date="{{ utc_to_kst(ts) }}",
+    )
+
+    sourcing_minutely = CryptocurrencyPriceSourcingBatchMinutelyOperator(
+        task_id=SOURCING_MINUTELY_TASK_ID,
+        bucket_name=CRYPTOCURRENCY_BUCKET_NAME,
+        symbol_list=TOP_SYMBOL_LIST_BY_MARKET_CAP,
+        execution_date="{{ utc_to_kst(ts) }}",
+    )
+
+    # data_refresh_tasks >> cryp
