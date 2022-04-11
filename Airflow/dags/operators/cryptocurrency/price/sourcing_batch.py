@@ -1,18 +1,18 @@
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date
-from io import BytesIO
-from typing import Any, Dict, Final, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Final, Iterable, List, Optional, Tuple, Union
 
 from airflow.models.taskinstance import Context
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+from airflow.providers.http.hooks.http import HttpHook
 from constants import CRYPTO_COMPARE_TO_SYMBOL
 from hooks.wrappers.http_stream import HttpStreamHook
 from operators.cryptocurrency.price.base import CryptocurrencyBaseOperator
 from utils.cryptocurrency.top_list import TOP_SYMBOL_LIST_BY_MARKET_CAP
 from utils.date import date_range, datetime_to_timestamp
-from utils.request import get_request_temporary_file
-from utils.s3 import upload_file_s3
+from utils.exception import raise_airflow_exception
+from utils.request import get_request_json
+from utils.s3 import upload_json_to_s3
 
 
 @dataclass
@@ -37,6 +37,8 @@ class CryptocurrencyPriceSourcingBatchOperator(CryptocurrencyBaseOperator):
         execution_date: str,
         api_chunk_size: int = 2000,
         api_aggregate: int = 1,
+        back_off_base: float = 0,
+        back_off_cap: float = 0,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -49,6 +51,8 @@ class CryptocurrencyPriceSourcingBatchOperator(CryptocurrencyBaseOperator):
         self.s3_hook = S3Hook()
         self.api_chunk_size = api_chunk_size
         self.api_aggregate = api_aggregate
+        self.back_off_base = back_off_base
+        self.back_off_cap = back_off_cap
 
     @property
     def batch_unit(self):
@@ -74,35 +78,64 @@ class CryptocurrencyPriceSourcingBatchOperator(CryptocurrencyBaseOperator):
     def end_date_of_date_range(self) -> date:
         raise NotImplementedError()
 
-    @contextmanager
+    def try_to_get_request_json(
+        self,
+        http_hook: Union[HttpHook, HttpStreamHook],
+        endpoint: str,
+        data: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, Any]] = None,
+        retry_count: int = 1,
+        err_msg: str = "",
+    ) -> Dict[str, Any]:
+        if retry_count <= 0:
+            raise_airflow_exception(
+                error_msg=err_msg,
+                logger=self.log,
+            )
+        response_json = get_request_json(
+            http_hook=http_hook,
+            endpoint=endpoint,
+            data=data,
+            headers=headers,
+            back_off_cap=self.back_off_cap,
+            back_off_base=self.back_off_base,
+        )
+
+        response_status = response_json.get("Response")
+        if response_status == "Success":
+            return response_json
+        response_message = response_json.get("Message")
+        return self.try_to_get_request_json(
+            http_hook=http_hook,
+            endpoint=endpoint,
+            data=data,
+            retry_count=retry_count - 1,
+            err_msg=f"{err_msg} retry_count : {retry_count}\nerr_msg : {response_message} \n\n",
+        )
+
     def read(
         self,
         endpoint: str,
         data: Optional[Dict[str, Any]] = None,
-        back_off_base: Optional[float] = None,
-        back_off_cap: Optional[float] = None,
         headers: Optional[Dict[str, Any]] = None,
     ):
-        with get_request_temporary_file(
+        return self.try_to_get_request_json(
             http_hook=self.http_hook,
             endpoint=endpoint,
             data=data,
-            back_off_base=back_off_base,
-            back_off_cap=back_off_cap,
             headers=headers,
-        ) as f:
-            yield f
+        )
 
     def write(
         self,
-        temporary_file_io: BytesIO,
+        json_data: Dict[str, Any],
         key: str,
     ) -> None:
-        upload_file_s3(
+        upload_json_to_s3(
             s3_hook=self.s3_hook,
             bucket_name=self.bucket_name,
-            key=key,
-            file_obj=temporary_file_io,
+            data_key=key,
+            json_data=json_data,
         )
 
     def timestamp_generator(self) -> Iterable[Tuple[int, int]]:
@@ -129,17 +162,16 @@ class CryptocurrencyPriceSourcingBatchOperator(CryptocurrencyBaseOperator):
             )
 
     def execute(self, context: Context) -> None:
-        data_key_prefix = f"test/test/{self.batch_unit}"
+
         data_idx = 0
         for symbol in TOP_SYMBOL_LIST_BY_MARKET_CAP:
+            data_key_prefix = f"test/test/{symbol}/{self.batch_unit}"
             for data in self.api_data_generator(symbol=symbol):
-                with self.read(
+                json_data = self.read(
                     endpoint=self.api_endpoint,
                     data=asdict(data),
-                    back_off_cap=0,
-                    back_off_base=0,
-                ) as f:
-                    self.write(
-                        temporary_file_io=f, key=f"{data_key_prefix}/{data_idx}.json"
-                    )
-                    data_idx += 1
+                )
+                self.write(
+                    json_data=json_data, key=f"{data_key_prefix}/{data_idx}.json"
+                )
+                data_idx += 1
